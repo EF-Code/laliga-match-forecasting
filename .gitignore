@@ -1,0 +1,31 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+.env
+.env.*
+!.env.example
+
+# Generated data and run outputs
+data/
+outputs/
+artifacts/
+*.parquet
+*.csv
+*.jsonl
+
+# Notebook runtime state
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Credentials and model artifacts
+*.pem
+*.key
+*token*
+*secret*
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.bin

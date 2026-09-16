@@ -1,128 +1,277 @@
 # LaLiga Match Forecasting
 
-Reproducible data preparation and baseline forecasting for LaLiga football
-matches. The project treats the team as a changing time-series state rather
-than as a permanent club statistic.
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Hugging Face dataset](https://img.shields.io/badge/Hugging%20Face-dataset-FFD21E?logo=huggingface&logoColor=000)](https://huggingface.co/datasets/NewSonnet/laliga-football-match-forecasting)
 
-## Current status
+Reproducible match data and leakage-safe baselines for time-aware LaLiga
+forecasting.
 
-Version **0.2.0** keeps the results-and-basic-statistics foundation and adds a
-separate StatsBomb Open Data enrichment bundle. It downloads the available male
-La Liga matches from the 2014/15 through 2020/21 entries in the StatsBomb
-competition catalog, then normalizes match metadata, lineups, event records,
-players, and manager-team assignments. The coverage artifact records the
-actual match count for each season; these are selected open-data records, not a
-claim that every season is complete.
+This project models a club as a changing time-series state. It keeps results,
+observed match data, and optional player-level enrichment separate so that
+rosters, managers, and historical performance can change from season to
+season without being treated as permanent club attributes.
 
-The StatsBomb artifacts are observed-match data and are not yet used as
-pre-match forecasting features. Transfers, injuries, and player-form features
-remain future enrichment layers.
+The forecasting path is tabular and time-series based. The repository does not
+train a language model; the current baseline is a chronological multiclass
+classifier, with room for stronger statistical and machine-learning models.
 
-The generated data is deliberately not committed to Git. The source files are
-downloaded reproducibly by the build module and the Hugging Face publication
-cell.
+## Current release: v0.2.0
+
+The published [Hugging Face dataset](https://huggingface.co/datasets/NewSonnet/laliga-football-match-forecasting)
+contains a base results-and-statistics layer and a separate StatsBomb Open Data
+enrichment layer.
+
+### Published snapshot
+
+These counts were read back from the public v0.2.0 Hub release. Upstream files
+can change, so reruns should be identified by their source URLs, timestamps,
+and coverage artifact.
+
+| Artifact | Purpose | Rows |
+| --- | --- | ---: |
+| `pre_match_forecasting` | Pre-kickoff features and full-time labels | 4,560 |
+| `match_observations` | Observed results and post-match basic statistics | 4,560 |
+| `team_match_stats` | Long-form observed team-match statistics | 9,120 |
+| `statsbomb_matches` | StatsBomb match metadata and score fields | 590 |
+| `statsbomb_lineups` | Player-team-match lineup observations | 21,512 |
+| `statsbomb_events` | Normalized StatsBomb event records | 2,099,452 |
+| `statsbomb_players` | Deduplicated player dimension | 1,428 |
+| `statsbomb_managers` | Manager-team-match assignments | 1,186 |
+| `statsbomb_coverage` | Season-level coverage and load status | 7 |
+
+The main forecasting table has season-based splits:
+
+| Split | Seasons | Rows |
+| --- | --- | ---: |
+| `train` | 2014/15–2023/24 | 3,800 |
+| `validation` | 2024/25 | 380 |
+| `test` | 2025/26 | 380 |
+
+## What is included
+
+### Main forecasting table
+
+`pre_match_forecasting` contains one row per match. Its target is the full-time
+result: `H` (home win), `D` (draw), or `A` (away win). It also contains the
+home and away goal labels for downstream regression or probabilistic modeling.
+
+The current feature set is calculated sequentially and includes:
+
+- Elo ratings immediately before kickoff;
+- matches seen by each team;
+- last-five-match averages for points, goals, shots, shots on target, and
+  corners;
+- last-five win rates; and
+- rest days since each team's previous match.
+
+The exact field definitions are in
+[`artifacts/data_dictionary.json`](https://huggingface.co/datasets/NewSonnet/laliga-football-match-forecasting/blob/main/artifacts/data_dictionary.json).
+
+### Historical enrichment tables
+
+The StatsBomb bundle is published under `artifacts/` on the Hub:
+
+| Path | Contents |
+| --- | --- |
+| `artifacts/statsbomb_matches.parquet` | Available male LaLiga match metadata, scores, teams, and manager JSON references. |
+| `artifacts/statsbomb_lineups.parquet` | One row per listed player, team, and match, including starter/appearance flags, position intervals, cards, and an estimated played-minute field. |
+| `artifacts/statsbomb_events.parquet` | One row per event with common time, team, player, and position fields plus the complete nested event in `event_json`. |
+| `artifacts/statsbomb_players.parquet` | Deduplicated player dimension keyed by StatsBomb `player_id`. |
+| `artifacts/statsbomb_managers.parquet` | Manager-team-match assignments extracted from match records. |
+| `artifacts/statsbomb_coverage.parquet` | Fetched season catalog entries, match counts, source URLs, update timestamps, and load status. |
+
+The base artifacts are also available under `artifacts/`:
+
+- `artifacts/match_observations.parquet`
+- `artifacts/team_match_stats.parquet`
+- `artifacts/data_dictionary.json`
+
+## StatsBomb coverage
+
+The ingestion module selects the male LaLiga entries in the StatsBomb
+competition catalog from 2014/15 through 2020/21. The open-data selection is
+not a complete league-season mirror; the release therefore records the actual
+number of fetched matches instead of implying complete coverage.
+
+| Season | Available matches |
+| --- | ---: |
+| 2014/15 | 38 |
+| 2015/16 | 380 |
+| 2016/17 | 34 |
+| 2017/18 | 36 |
+| 2018/19 | 34 |
+| 2019/20 | 33 |
+| 2020/21 | 35 |
+| **Total** | **590** |
+
+Use `statsbomb_coverage.parquet` as the authoritative release-level coverage
+record. `minutes_played_estimate` is derived from lineup position intervals and
+the observed event clock; it is an estimate, not an official minutes field.
+
+## Leakage boundary
+
+The pre-match table is generated after sorting matches chronologically by date,
+kickoff time, and match ID. A match's result, goals, shots, corners, cards, and
+other post-match statistics are added as labels or observations only after its
+feature row has been created.
+
+The StatsBomb lineups and events are observed-match artifacts. They are not
+joined directly into `pre_match_forecasting`. A future availability or lineup
+feature must use only information known before kickoff and must apply an
+explicit timestamp cutoff. The final lineup, final event stream, or a
+post-match player total cannot be used as a pre-match input.
+
+Transfers, injuries, suspensions, player form, and as-of roster features are
+not included in v0.2.0. Manager assignments in the enrichment bundle are
+historical observations, not a current-manager feature table.
+
+## Reference baseline
+
+The included baseline is a standardized multinomial logistic regression over
+the pre-match feature columns. The following results are a v0.2.0 reference
+run, not a claim that the model generalizes beyond the held-out seasons.
+
+| Split | Rows | Accuracy | Log loss | Multiclass Brier |
+| --- | ---: | ---: | ---: | ---: |
+| Validation (2024/25) | 380 | 0.5421 | 0.9861 | 0.5846 |
+| Test (2025/26) | 380 | 0.5158 | 0.9807 | 0.5769 |
+
+The metrics are intended as a reproducibility checkpoint. Future models should
+also be compared with simple dynamic baselines, evaluated chronologically, and
+calibrated before any practical use.
 
 ## Repository layout
 
 ```text
-src/laliga_forecasting/build_dataset.py   # download, normalize, feature build, Hub upload
-src/laliga_forecasting/statsbomb_open_data.py # StatsBomb La Liga JSON ingestion and normalization
-src/laliga_forecasting/train_baseline.py  # chronological baseline evaluation
-requirements-colab.txt                    # Colab runtime dependencies
+src/laliga_forecasting/build_dataset.py       # Base ingestion, features, outputs, Hub upload
+src/laliga_forecasting/statsbomb_open_data.py # StatsBomb catalog, JSON ingestion, normalization
+src/laliga_forecasting/train_baseline.py      # Chronological baseline evaluation
+notebooks/01_build_dataset_colab.ipynb        # Colab build and publication workflow
+requirements-colab.txt                         # Colab runtime dependencies
+pyproject.toml                                 # Package metadata and local dependencies
 ```
 
-## Run locally
+Generated data, caches, model outputs, and credentials are excluded from the
+Git repository. The build scripts retain source URLs and release metadata in
+the generated artifacts.
 
-Use the project Python environment:
+## Reproduce locally
+
+The local build downloads the base Football-Data.co.uk files and, when
+requested, the StatsBomb JSON files. The StatsBomb raw responses are cached so
+completed downloads can be reused on a later run.
 
 ```bash
+git clone https://github.com/EF-Code/laliga-match-forecasting.git
+cd laliga-match-forecasting
+
 ~/.venv/bin/python -m pip install -e .
-PYTHONPATH=src ~/.venv/bin/python -m laliga_forecasting.build_dataset --output-dir outputs/v0.2.0 --with-statsbomb
+
+PYTHONPATH=src ~/.venv/bin/python -m laliga_forecasting.build_dataset \
+  --output-dir outputs/v0.2.0 \
+  --with-statsbomb
+
 PYTHONPATH=src ~/.venv/bin/python -m laliga_forecasting.train_baseline \
   --input outputs/v0.2.0/pre_match_forecasting.parquet \
   --output outputs/v0.2.0/baseline_metrics.json
 ```
 
-The local build never uploads anything. The source publisher's terms and
-attribution requirements apply; verify redistribution rights before treating
-any generated copy as an openly licensed dataset.
+The local build never uploads data. The `--with-statsbomb` run requires network
+access and processes a large event bundle; allow additional disk, memory, and
+runtime for that step.
 
-## Run in Google Colab
+## Build and publish from Google Colab
 
-The reproducible Colab workflow uses the notebook's `HF_TOKEN` secret. It does
-not call `input()`, `getpass()`, or print the token.
+The notebook is designed for a Colab Secret named `HF_TOKEN` with notebook
+access enabled. The token is read in the notebook kernel, passed in memory to
+the Hugging Face uploader, and never printed, prompted for, or written to
+disk. The publisher resolves the account from the token and creates or updates
+the public dataset repository:
+
+`<your-hugging-face-account>/laliga-football-match-forecasting`
 
 ```python
+import importlib
 import os
-os.chdir('/content')
-!pip install -q -r https://raw.githubusercontent.com/EF-Code/laliga-match-forecasting/main/requirements-colab.txt
-from pathlib import Path
 import shutil
+import sys
+from pathlib import Path
 
-repo_dir = Path('/content/laliga-match-forecasting')
+os.chdir("/content")
+!pip install -q -r https://raw.githubusercontent.com/EF-Code/laliga-match-forecasting/main/requirements-colab.txt
+
+repo_dir = Path("/content/laliga-match-forecasting")
 if repo_dir.exists():
     shutil.rmtree(repo_dir)
 !git clone -q https://github.com/EF-Code/laliga-match-forecasting.git /content/laliga-match-forecasting
-os.chdir('/content/laliga-match-forecasting')
+os.chdir(repo_dir)
 
-import sys
-import importlib
 from google.colab import userdata
-importlib.invalidate_caches()
-sys.path.insert(0, '/content/laliga-match-forecasting/src')
-import laliga_forecasting.build_dataset as builder
 
-hf_token = userdata.get('HF_TOKEN')
+importlib.invalidate_caches()
+sys.path.insert(0, str(repo_dir / "src"))
+import laliga_forecasting.build_dataset as builder
+builder = importlib.reload(builder)
+
+hf_token = userdata.get("HF_TOKEN")
 if not hf_token:
-    raise RuntimeError('Add a write-capable HF_TOKEN secret in Colab and enable notebook access')
-output_dir = Path('/content/laliga-output')
+    raise RuntimeError(
+        "Add a write-capable HF_TOKEN secret in Colab and enable notebook access"
+    )
+
+output_dir = Path("/content/laliga-output")
 matches = builder.fetch_all_seasons()
 pre_match, observations, team_stats = builder.build_pre_match_dataset(matches)
-statsbomb_bundle = builder.build_statsbomb_bundle(output_dir / 'statsbomb-cache')
-paths = builder.write_outputs(output_dir, pre_match, observations, team_stats, statsbomb_bundle)
+statsbomb_bundle = builder.build_statsbomb_bundle(output_dir / "statsbomb-cache")
+paths = builder.write_outputs(
+    output_dir, pre_match, observations, team_stats, statsbomb_bundle
+)
 repo_id = builder.publish_to_hub(output_dir, pre_match, paths, token=hf_token)
 del hf_token
 
-!PYTHONPATH=src python -m laliga_forecasting.train_baseline --input /content/laliga-output/pre_match_forecasting.parquet --output /content/laliga-output/baseline_metrics.json
+print(repo_id)
 ```
 
-Add a Colab Secret named `HF_TOKEN` and enable notebook access before running
-the publication cell. The token is read in the notebook kernel, passed in
-memory to the uploader, and never prompted for, printed, or written to disk.
-The code resolves the HF account from that secret and publishes to
-`<account>/laliga-football-match-forecasting`.
+The notebook also runs the baseline against
+`/content/laliga-output/pre_match_forecasting.parquet` after publication.
 
-## Published artifacts
+## Sources and attribution
 
-The Hub dataset contains the existing chronological `pre_match_forecasting`
-splits and basic-statistics artifacts, plus these StatsBomb artifacts:
+The base results and basic match statistics come from
+[Football-Data.co.uk Spain data](https://www.football-data.co.uk/spainm.php).
 
-- `statsbomb_matches.parquet` — match metadata, score fields, and manager JSON references.
-- `statsbomb_lineups.parquet` — one row per listed player/team/match, with starter and appearance flags, position intervals, cards, and an estimated played-minute field.
-- `statsbomb_events.parquet` — one row per event with common time/team/player fields and the complete nested event in `event_json`.
-- `statsbomb_players.parquet` — deduplicated player dimension keyed by `player_id`.
-- `statsbomb_managers.parquet` — manager-team-match assignments.
-- `statsbomb_coverage.parquet` — actual season coverage, source URLs, timestamps, and load status.
+The enrichment comes from [StatsBomb Open Data](https://github.com/hudl/open-data).
+Read the source repository's [README and terms](https://github.com/hudl/open-data/blob/master/README.md)
+before reusing or redistributing source-derived artifacts. The README requests
+StatsBomb attribution and logo use for published research, analysis, or
+insights based on the open data; the Hub dataset card preserves that note.
 
-The StatsBomb Open Data [README](https://github.com/hudl/open-data/blob/master/README.md)
-describes selected data as freely available for public research and football
-analytics and asks published research, analysis, or insights to credit
-StatsBomb and use its logo. The dataset card retains that attribution note;
-review the source terms before redistributing the raw source files.
+The Hugging Face dataset is marked `license: other` because the upstream terms
+and attribution requirements apply. Do not describe this release as an
+unrestricted, open-licensed copy of the upstream data without reviewing those
+terms.
 
-## Data boundary
+## Roadmap
 
-`pre_match_forecasting.parquet` contains features calculated from earlier
-matches and the current match's labels. The separate observation artifacts
-contain post-match statistics and must not be joined back into pre-match
-features without respecting the match-time cutoff.
+- Resolve team and player identities across source systems and seasons.
+- Add transfer-window and registration history with effective dates.
+- Add injury and suspension information with publication timestamps.
+- Build as-of roster, manager, lineup-availability, and player-form features.
+- Compare Elo, Poisson/Dixon–Coles, calibrated tree models, and probabilistic
+  ensemble baselines.
+- Add schema, provenance, leakage, and release validation checks to the build
+  workflow.
 
-The StatsBomb lineups and events are post-match observations. A forecasting
-feature may use them only after applying a match-time cutoff; do not join the
-final lineup or event artifact directly into a pre-match row. A model should be
-evaluated chronologically and compared with simple dynamic baselines before
-any language model is introduced.
+## Contributing
 
-## Source
+Issues and pull requests are welcome. For data changes, include the source URL,
+retrieval date, affected schema, coverage impact, and the time cutoff used for
+any forecasting feature. Run the local build or a bounded parser check before
+opening a pull request, and keep generated data and secrets out of commits.
 
-[Football-Data.co.uk Spain data](https://www.football-data.co.uk/spainm.php)
+## Licensing
+
+This repository does not currently declare a separate code license. The
+dataset and generated artifacts remain subject to the terms and attribution
+requirements of their upstream sources; see the source links and the dataset
+card before reuse.

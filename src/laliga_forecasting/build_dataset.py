@@ -481,7 +481,7 @@ def data_dictionary() -> dict[str, Any]:
     }
 
 
-def _write_outputs(
+def write_outputs(
     output_dir: Path,
     pre_match: pd.DataFrame,
     observations: pd.DataFrame,
@@ -577,8 +577,18 @@ Dataset repository: https://huggingface.co/datasets/{repo_id}
 """
 
 
-def publish_to_hub(output_dir: Path, pre_match: pd.DataFrame, paths: dict[str, Path]) -> str:
-    """Publish the generated data using Colab's HF_TOKEN secret only."""
+def publish_to_hub(
+    output_dir: Path,
+    pre_match: pd.DataFrame,
+    paths: dict[str, Path],
+    token: str | None = None,
+) -> str:
+    """Publish generated data with an explicitly supplied or Colab secret token.
+
+    The notebook supplies the token after reading it in the Colab kernel. The
+    fallback keeps direct notebook use possible, while avoiding prompts and
+    never printing the token.
+    """
 
     try:
         from datasets import Dataset, DatasetDict
@@ -586,7 +596,10 @@ def publish_to_hub(output_dir: Path, pre_match: pd.DataFrame, paths: dict[str, P
     except ImportError as exc:
         raise RuntimeError("Install requirements-colab.txt before publishing") from exc
 
-    token = _colab_token()
+    if token is None:
+        token = _colab_token()
+    if not token or not isinstance(token, str):
+        raise RuntimeError("Add a write-capable HF_TOKEN secret in Colab and enable notebook access")
     api = HfApi(token=token)
     account = api.whoami()
     username = account.get("name") or account.get("auth", {}).get("name")
@@ -647,7 +660,7 @@ def main() -> None:
 
     matches = fetch_all_seasons()
     pre_match, observations, team_stats = build_pre_match_dataset(matches)
-    paths = _write_outputs(args.output_dir, pre_match, observations, team_stats)
+    paths = write_outputs(args.output_dir, pre_match, observations, team_stats)
     print(f"MATCH_ROWS {len(matches)}")
     print(f"PRE_MATCH_ROWS {len(pre_match)}")
     print(f"TEAM_MATCH_ROWS {len(team_stats)}")

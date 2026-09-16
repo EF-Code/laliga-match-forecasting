@@ -47,18 +47,38 @@ not call `input()`, `getpass()`, or print the token.
 
 ```python
 !pip install -q -r https://raw.githubusercontent.com/EF-Code/laliga-match-forecasting/main/requirements-colab.txt
-!rm -rf /content/laliga-match-forecasting
+from pathlib import Path
+import shutil
+
+repo_dir = Path('/content/laliga-match-forecasting')
+if repo_dir.exists():
+    shutil.rmtree(repo_dir)
 !git clone -q https://github.com/EF-Code/laliga-match-forecasting.git /content/laliga-match-forecasting
 %cd /content/laliga-match-forecasting
-!PYTHONPATH=src python -m laliga_forecasting.build_dataset --output-dir /content/laliga-output --publish
-!PYTHONPATH=src python -m laliga_forecasting.train_baseline \
-  --input /content/laliga-output/pre_match_forecasting.parquet \
-  --output /content/laliga-output/baseline_metrics.json
+
+import sys
+from google.colab import userdata
+sys.path.insert(0, '/content/laliga-match-forecasting/src')
+import laliga_forecasting.build_dataset as builder
+
+hf_token = userdata.get('HF_TOKEN')
+if not hf_token:
+    raise RuntimeError('Add a write-capable HF_TOKEN secret in Colab and enable notebook access')
+output_dir = Path('/content/laliga-output')
+matches = builder.fetch_all_seasons()
+pre_match, observations, team_stats = builder.build_pre_match_dataset(matches)
+paths = builder.write_outputs(output_dir, pre_match, observations, team_stats)
+repo_id = builder.publish_to_hub(output_dir, pre_match, paths, token=hf_token)
+del hf_token
+
+!PYTHONPATH=src python -m laliga_forecasting.train_baseline --input /content/laliga-output/pre_match_forecasting.parquet --output /content/laliga-output/baseline_metrics.json
 ```
 
 Add a Colab Secret named `HF_TOKEN` and enable notebook access before running
-the publication command. The code resolves the HF account from that secret and
-publishes to `<account>/laliga-football-match-forecasting`.
+the publication cell. The token is read in the notebook kernel, passed in
+memory to the uploader, and never prompted for, printed, or written to disk.
+The code resolves the HF account from that secret and publishes to
+`<account>/laliga-football-match-forecasting`.
 
 ## Data boundary
 

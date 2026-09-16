@@ -509,7 +509,12 @@ def _colab_token() -> str:
         from google.colab import userdata  # type: ignore
     except ImportError as exc:
         raise RuntimeError("HF publication is only enabled from the Colab runtime") from exc
-    token = userdata.get("HF_TOKEN")
+    try:
+        token = userdata.get("HF_TOKEN")
+    except AttributeError as exc:
+        raise RuntimeError(
+            "Colab Secrets must be read in the notebook kernel; pass HF_TOKEN to publish_to_hub"
+        ) from exc
     if not token or not isinstance(token, str):
         raise RuntimeError("Add a write-capable HF_TOKEN secret in Colab and enable notebook access")
     return token

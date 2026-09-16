@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "laliga-match-forecasting"
-version = "0.1.0"
+version = "0.2.0"
 description = "Reproducible, leakage-safe LaLiga match forecasting data and baselines"
 readme = "README.md"
 requires-python = ">=3.10"

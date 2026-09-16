@@ -1,10 +1,11 @@
-"""Build and optionally publish the first LaLiga forecasting dataset release.
+"""Build and optionally publish the LaLiga forecasting dataset release.
 
-The v0.1 release intentionally uses one consistent, freely downloadable
-historical source: Football-Data.co.uk's Spain CSV files. It contains match
-results and basic match statistics. Lineups, minutes, transfers, managers,
-and availability are reserved for a later, separately documented enrichment
-source so that the first release does not silently mix incompatible data.
+The results and basic-statistics tables use Football-Data.co.uk's Spain CSV
+files. Version 0.2 adds a separately documented StatsBomb Open Data enrichment
+bundle containing the available historical La Liga matches, lineups, events,
+players, and manager assignments. The enrichment remains separate from the
+pre-match feature table so observed-match data cannot silently leak into a
+forecasting row.
 
 All pre-match features are calculated in chronological order. Statistics from
 the match being predicted never enter that match's feature row.
@@ -24,9 +25,11 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from .statsbomb_open_data import build_statsbomb_bundle, statsbomb_data_dictionary
+
 SOURCE_ROOT = "https://www.football-data.co.uk/mmz4281"
 DATASET_SLUG = "laliga-football-match-forecasting"
-DATASET_VERSION = "0.1.0"
+DATASET_VERSION = "0.2.0"
 SEASON_START_YEARS = tuple(range(2014, 2026))  # 2014-15 through 2025-26
 
 REQUIRED_COLUMNS = ("Date", "HomeTeam", "AwayTeam", "FTHG", "FTAG", "FTR")
@@ -458,12 +461,12 @@ def build_pre_match_dataset(matches: pd.DataFrame) -> tuple[pd.DataFrame, pd.Dat
 
 
 def data_dictionary() -> dict[str, Any]:
-    return {
+    dictionary = {
         "dataset_name": "LaLiga Football Match Forecasting Dataset",
         "dataset_version": DATASET_VERSION,
         "source": "Football-Data.co.uk Spain SP1 historical CSV files",
         "source_url": "https://www.football-data.co.uk/spainm.php",
-        "scope": "LaLiga match results and basic match statistics; no player, lineup, transfer, manager, or injury enrichment in v0.1.0.",
+        "scope": "LaLiga match results and basic match statistics with a separate StatsBomb Open Data historical enrichment bundle.",
         "target": {
             "result": "H, D, or A full-time result",
             "home_goals": "Full-time home goals",
@@ -475,10 +478,12 @@ def data_dictionary() -> dict[str, Any]:
             "validation": "2024-25",
             "test": "2025-26",
         },
-        "future_enrichment": ["lineups", "minutes", "transfers", "managers", "injuries", "player_form"],
+        "statsbomb_enrichment": statsbomb_data_dictionary(),
+        "future_enrichment": ["transfers", "injuries", "player_form", "pre_match_lineup_features"],
         "license_note": "The source publisher's terms and attribution requirements apply. Verify redistribution rights before treating the Hub copy as an open-licensed dataset.",
         "feature_columns": FEATURE_COLUMNS,
     }
+    return dictionary
 
 
 def write_outputs(
@@ -486,6 +491,7 @@ def write_outputs(
     pre_match: pd.DataFrame,
     observations: pd.DataFrame,
     team_stats: pd.DataFrame,
+    statsbomb_bundle: dict[str, pd.DataFrame] | None = None,
 ) -> dict[str, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
     pre_path = output_dir / "pre_match_forecasting.parquet"
@@ -496,12 +502,19 @@ def write_outputs(
     observations.to_parquet(observations_path, index=False)
     team_stats.to_parquet(team_path, index=False)
     dictionary_path.write_text(json.dumps(data_dictionary(), indent=2) + "\n", encoding="utf-8")
-    return {
+    paths: dict[str, Path] = {
         "pre_match": pre_path,
         "observations": observations_path,
         "team_stats": team_path,
         "dictionary": dictionary_path,
     }
+    for artifact_name, frame in (statsbomb_bundle or {}).items():
+        if not artifact_name.startswith("statsbomb_"):
+            raise ValueError(f"Unexpected enrichment artifact name: {artifact_name}")
+        artifact_path = output_dir / f"{artifact_name}.parquet"
+        frame.to_parquet(artifact_path, index=False, compression="zstd")
+        paths[artifact_name] = artifact_path
+    return paths
 
 
 def _colab_token() -> str:
@@ -554,15 +567,30 @@ from matches that occurred before each target match.
   post-match basic statistics. Do not use these columns as pre-match features.
 - `artifacts/team_match_stats.parquet` — long-form observed team-match stats.
 - `artifacts/data_dictionary.json` — field definitions and provenance notes.
+- `artifacts/statsbomb_matches.parquet` — available StatsBomb La Liga match metadata.
+- `artifacts/statsbomb_lineups.parquet` — player-team-match lineup rows and
+  position intervals.
+- `artifacts/statsbomb_events.parquet` — normalized event rows with nested
+  source payloads in `event_json`.
+- `artifacts/statsbomb_players.parquet` — deduplicated StatsBomb player
+  dimension.
+- `artifacts/statsbomb_managers.parquet` — manager-team-match assignments.
+- `artifacts/statsbomb_coverage.parquet` — actual season coverage and load
+  status.
 
 Rows: **{len(pre_match)}**. Split counts: `{json.dumps(split_counts, sort_keys=True)}`.
 
 ## Important scope limitation
 
-This release does **not** yet contain lineups, player minutes, transfers,
-managers, injuries, or player-level form. Those will be added as a separately
-documented enrichment release after source coverage and redistribution terms
-are verified. Do not describe this release as player-aware.
+This release includes a separate StatsBomb Open Data enrichment bundle for the
+available male La Liga seasons from 2014/15 through 2020/21. It contains
+observed-match lineups, event records, player identities, and manager-team
+assignments. The coverage artifact records the actual number of matches per
+season because the open-data selection is not guaranteed to be a complete
+league-season mirror.
+
+The StatsBomb enrichment is not yet used to construct pre-match forecasting
+features. Transfers, injuries, and player-form features remain future work.
 
 ## Leakage boundary
 
@@ -576,6 +604,13 @@ rows when evaluating a forecaster.
 Source: [Football-Data.co.uk Spain data](https://www.football-data.co.uk/spainm.php).
 The source publisher's terms and attribution requirements apply. Verify
 redistribution rights before using this Hub copy in a public product.
+
+Enrichment source: [StatsBomb Open Data](https://github.com/hudl/open-data).
+The Open Data README describes selected data as freely available for public
+research and football analytics and requests StatsBomb attribution and logo
+when publishing research, analysis, or insights based on it. See
+`artifacts/statsbomb_coverage.parquet` for the exact fetched coverage and
+preserve the source terms when reusing these artifacts.
 
 Repository: https://github.com/EF-Code/laliga-match-forecasting
 Dataset repository: https://huggingface.co/datasets/{repo_id}
@@ -628,11 +663,17 @@ def publish_to_hub(
         commit_message=f"Publish LaLiga forecasting dataset v{DATASET_VERSION}",
     )
 
-    for key, path in (
+    artifact_paths = [
         ("match_observations", paths["observations"]),
         ("team_match_stats", paths["team_stats"]),
         ("data_dictionary", paths["dictionary"]),
-    ):
+    ]
+    artifact_paths.extend(
+        (key, paths[key])
+        for key in sorted(paths)
+        if key.startswith("statsbomb_")
+    )
+    for key, path in artifact_paths:
         api.upload_file(
             path_or_fileobj=str(path),
             path_in_repo=f"artifacts/{path.name}",
@@ -660,12 +701,18 @@ def publish_to_hub(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/v0.1.0"))
+    parser.add_argument("--with-statsbomb", action="store_true", help="Build the StatsBomb Open Data La Liga enrichment artifacts")
     parser.add_argument("--publish", action="store_true", help="Publish to the HF account from Colab HF_TOKEN")
     args = parser.parse_args()
 
     matches = fetch_all_seasons()
     pre_match, observations, team_stats = build_pre_match_dataset(matches)
-    paths = write_outputs(args.output_dir, pre_match, observations, team_stats)
+    statsbomb_bundle = (
+        build_statsbomb_bundle(args.output_dir / "statsbomb-cache")
+        if args.with_statsbomb
+        else None
+    )
+    paths = write_outputs(args.output_dir, pre_match, observations, team_stats, statsbomb_bundle)
     print(f"MATCH_ROWS {len(matches)}")
     print(f"PRE_MATCH_ROWS {len(pre_match)}")
     print(f"TEAM_MATCH_ROWS {len(team_stats)}")

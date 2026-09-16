@@ -180,60 +180,19 @@ The local build never uploads data. The `--with-statsbomb` run requires network
 access and processes a large event bundle; allow additional disk, memory, and
 runtime for that step.
 
-## Build and publish from Google Colab
+## Build (and optionally publish) from Google Colab
 
-The notebook is designed for a Colab Secret named `HF_TOKEN` with notebook
-access enabled. The token is read in the notebook kernel, passed in memory to
-the Hugging Face uploader, and never printed, prompted for, or written to
-disk. The publisher resolves the account from the token and creates or updates
-the public dataset repository:
+Open [`notebooks/01_build_dataset_colab.ipynb`](notebooks/01_build_dataset_colab.ipynb)
+in Colab and run the cells from top to bottom. The notebook builds the dataset,
+writes the generated artifacts to `/content/laliga-output`, and runs the
+baseline without requiring Hugging Face authentication.
+
+Publishing is opt-in. Set `PUBLISH_TO_HUB = True` in the optional publishing
+cell and add a write-capable Colab Secret named `HF_TOKEN` with notebook access
+enabled. The token is read in memory, never printed or written to disk, and the
+dataset is created or updated under the authenticated user's account:
 
 `<your-hugging-face-account>/laliga-football-match-forecasting`
-
-```python
-import importlib
-import os
-import shutil
-import sys
-from pathlib import Path
-
-os.chdir("/content")
-!pip install -q -r https://raw.githubusercontent.com/EF-Code/laliga-match-forecasting/main/requirements-colab.txt
-
-repo_dir = Path("/content/laliga-match-forecasting")
-if repo_dir.exists():
-    shutil.rmtree(repo_dir)
-!git clone -q https://github.com/EF-Code/laliga-match-forecasting.git /content/laliga-match-forecasting
-os.chdir(repo_dir)
-
-from google.colab import userdata
-
-importlib.invalidate_caches()
-sys.path.insert(0, str(repo_dir / "src"))
-import laliga_forecasting.build_dataset as builder
-builder = importlib.reload(builder)
-
-hf_token = userdata.get("HF_TOKEN")
-if not hf_token:
-    raise RuntimeError(
-        "Add a write-capable HF_TOKEN secret in Colab and enable notebook access"
-    )
-
-output_dir = Path("/content/laliga-output")
-matches = builder.fetch_all_seasons()
-pre_match, observations, team_stats = builder.build_pre_match_dataset(matches)
-statsbomb_bundle = builder.build_statsbomb_bundle(output_dir / "statsbomb-cache")
-paths = builder.write_outputs(
-    output_dir, pre_match, observations, team_stats, statsbomb_bundle
-)
-repo_id = builder.publish_to_hub(output_dir, pre_match, paths, token=hf_token)
-del hf_token
-
-print(repo_id)
-```
-
-The notebook also runs the baseline against
-`/content/laliga-output/pre_match_forecasting.parquet` after publication.
 
 ## Sources and attribution
 

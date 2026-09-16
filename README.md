@@ -46,6 +46,8 @@ The reproducible Colab workflow uses the notebook's `HF_TOKEN` secret. It does
 not call `input()`, `getpass()`, or print the token.
 
 ```python
+import os
+os.chdir('/content')
 !pip install -q -r https://raw.githubusercontent.com/EF-Code/laliga-match-forecasting/main/requirements-colab.txt
 from pathlib import Path
 import shutil
@@ -54,10 +56,12 @@ repo_dir = Path('/content/laliga-match-forecasting')
 if repo_dir.exists():
     shutil.rmtree(repo_dir)
 !git clone -q https://github.com/EF-Code/laliga-match-forecasting.git /content/laliga-match-forecasting
-%cd /content/laliga-match-forecasting
+os.chdir('/content/laliga-match-forecasting')
 
 import sys
+import importlib
 from google.colab import userdata
+importlib.invalidate_caches()
 sys.path.insert(0, '/content/laliga-match-forecasting/src')
 import laliga_forecasting.build_dataset as builder
 

@@ -180,19 +180,17 @@ The local build never uploads data. The `--with-statsbomb` run requires network
 access and processes a large event bundle; allow additional disk, memory, and
 runtime for that step.
 
-## Build (and optionally publish) from Google Colab
+## Build from Google Colab
 
 Open [`notebooks/01_build_dataset_colab.ipynb`](notebooks/01_build_dataset_colab.ipynb)
-in Colab and run the cells from top to bottom. The notebook builds the dataset,
-writes the generated artifacts to `/content/laliga-output`, and runs the
-baseline without requiring Hugging Face authentication.
+in Colab and choose **Runtime > Run all**. The notebook requires no Hugging Face
+token, Google Drive mount, or manual input. It downloads the source data, builds
+the dataset and StatsBomb enrichment, runs the baseline, and writes all outputs
+to the temporary `/content/laliga-output` directory.
 
-Publishing is opt-in. Set `PUBLISH_TO_HUB = True` in the optional publishing
-cell and add a write-capable Colab Secret named `HF_TOKEN` with notebook access
-enabled. The token is read in memory, never printed or written to disk, and the
-dataset is created or updated under the authenticated user's account:
-
-`<your-hugging-face-account>/laliga-football-match-forecasting`
+Colab storage is ephemeral. Download the generated files from the Colab file
+browser if you want a local copy. The canonical published dataset is available
+from the [Hugging Face dataset page](https://huggingface.co/datasets/NewSonnet/laliga-football-match-forecasting).
 
 ## Sources and attribution
 
